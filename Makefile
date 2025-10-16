@@ -29,6 +29,9 @@ ${OBJ_DIR}/processus.o: ${SRC_DIR}/processus.c include/processus.h include/built
 ${OBJ_DIR}/builtins.o: ${SRC_DIR}/builtins.c include/builtins.h
 	${CC} ${CFLAGS} -c $< -o $@
 
+test: ${OBJ_DIR}/parser.o ${OBJ_DIR}/processus.o ${OBJ_DIR}/builtins.o src/test_parser.c
+	${CC} $^ -o $@ ${LDFLAGS}
+
 clean:
 	rm -f ${OBJ_DIR}/*.o
 

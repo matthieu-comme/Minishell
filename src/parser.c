@@ -18,10 +18,22 @@
 
 /** @brief Fonction de suppression des espaces inutiles au début et à la fin d'une chaîne de caractères.
  * @param str Chaîne de caractères à traiter.
- * @return int 0 en cas de succès, -1 en cas d'erreur.
+ * @return int 0 en cas de succès
  */
 int trim(char* str) {
-
+	char* start = str;
+	while (*start == ' ') {
+		++start;
+	}
+	
+	memmove(str, start, strlen(start) + 1);
+	
+	char* end = str + strlen(str) - 1;
+	while(*end == ' ') {
+		*end = '\0';
+		--end;
+	}	
+	return 0;
 }
 
 /** @brief Fonction de nettoyage d'une chaîne de caractères en supprimant les doublons d'espaces.
@@ -29,7 +41,9 @@ int trim(char* str) {
  * @return int 0 en cas de succès, -1 en cas d'erreur.
  */
 int clean(char* str) {
-
+	int len = strlen(str)+1;
+	while (replace(str, "  ", " ", len) == 0);
+	return 0;
 }
 
 /** @brief Fonction d'ajout de caractères d'espacement autour de tous les caractères de la chaîne *s* présents dans *str*.
@@ -41,7 +55,7 @@ int clean(char* str) {
  *    Si l'ajout d'espaces dépasse la taille maximale *max*, la fonction retourne -1.
  */
 int separate_s(char* str, char* s, size_t max) {
-
+	return 0;
 }
 
 /** @brief Fonction de remplacement de toutes les occurrences de la sous-chaîne *s* par la sous-chaîne *t* dans la chaîne *str*.
@@ -55,6 +69,32 @@ int separate_s(char* str, char* s, size_t max) {
  */
 int replace(char* str, const char* s, const char* t, size_t max) {
 
+	char* pos = strstr(str,s);
+	if (!pos) {
+		//printf("%s n'est pas inclus dans %s\n", s, str);
+		return -1;
+	}
+	char* src = pos + strlen(s);
+	char* dst = pos + strlen(t);
+	int nb = strlen(src) + 1; // taille de la partie à déplacer
+	int new_size = strlen(str) - strlen(s) + strlen(t); // taille finale théorique
+	if (new_size > max) {
+		nb = nb - (new_size - max);
+	}
+	
+	//printf("pos: '%s', src: '%s', dest: '%s'\n", pos, src, dst);
+	int nb_cp = strlen(t);
+	if (pos + nb_cp + 1 > str + max) {
+		int diff = (pos + nb_cp + 1 - (str + max));
+		if (diff < 0) diff = 0;
+		nb_cp -= diff;
+	}
+	if (dst < str+max && src < str+max)
+		memmove(dst, src, nb);
+	//printf("Après memmove: '%s'\n", str);
+	memcpy(pos, t, nb_cp);	
+	return 0;
+
 }
 
 /** @brief Fonction de substitution des variables d'environnement dans une chaîne de caractères.
@@ -66,14 +106,14 @@ int replace(char* str, const char* s, const char* t, size_t max) {
  *    Si le remplacement dépasse la taille maximale *max*, la fonction retourne -1.
  */
 int substenv(char* str, size_t max) {
-
+	return 0;
 }
 
 /** @brief Fonction de découpage d'une chaîne de caractères en tokens selon un séparateur.
  * @param str Chaîne de caractères à découper. Attention, cette chaîne est modifiée par la fonction.
  * @param sep Caractère séparateur.
  * @param tokens Tableau de chaînes de caractères pour stocker les tokens extraits. Le tableau est terminé par un pointeur NULL.
- * @param max Taille maximale du tableau *tokens*.
+ * @param max Taille maximale du tableau *tokens*, NULL compris.
  * @return int Nombre de tokens extraits, -1 en cas d'erreur (dépassement de taille).
  * @details Cette fonction découpe la chaîne *str* en tokens en utilisant le caractère *sep* comme séparateur.
  *    Les tokens extraits sont stockés dans le tableau *tokens*.
@@ -81,6 +121,16 @@ int substenv(char* str, size_t max) {
  */
 int strcut(char* str, char sep, char** tokens, size_t max) {
 
+	const char separator[] = {sep};
+	int nb_tokens = 0;
+	
+	char* token = strtok(str, separator);
+	while (token != NULL) {
+		tokens[nb_tokens] = token;
+		nb_tokens++;
+		token = strtok(NULL, separator);
+	}	
+	return nb_tokens;
 }
 
 /** @brief Fonction d'analyse d'une ligne de commande.
@@ -96,8 +146,8 @@ int strcut(char* str, char sep, char** tokens, size_t max) {
 */
 int parse_command_line(command_line_t* cmdl, const char* line) {
     // Copie de la ligne de commande dans la structure
-    strncpy(cmdl->command_line, line, MAX_CMD_LINE - 1);
-    cmdl->command_line[MAX_CMD_LINE - 1] = '\0';
+    // strncpy(cmdl->command_line, line, MAX_CMD_LINE - 1); ces 2 lignes peuvent causer un bug
+    // cmdl->command_line[MAX_CMD_LINE - 1] = '\0';
     // Suppression des espaces inutiles au début et à la fin
     if (trim(cmdl->command_line) != 0) {
         return -1;
