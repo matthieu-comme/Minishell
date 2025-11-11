@@ -184,23 +184,68 @@ int test_clean()
 
 int test_strcut()
 {
-	int result = 0;
-	char s1[] = "chaine de caracteres a decouper en tokens";
-	char *tokens1[8] = {NULL};
-	char *expected1[8] = {"chaine", "de", "caracteres", "a", "decouper", "en", "tokens", NULL};
+	char buffer[256];
+	char *tokens[10];
+	int ret;
 
-	int r1 = strcut(s1, ' ', tokens1, 8); // 7 tokens + NULL
-	for (int i = 0; i < 8; i++)
-	{
-		if (tokens1[i] == NULL)
-			continue;
-		if (strcmp(tokens1[i], expected1[i]))
-			printf("tokens[%d]: %s\nexpected[%d]: %s\n\n", i, tokens1[i], i, expected1[i]);
-	}
+	printf("Démarrage des tests unitaires pour strcut...\n");
 
-	printf("%d\n", r1);
+	strcpy(buffer, "un,deux,trois");
+	ret = strcut(buffer, ',', tokens, 10);
+	assert(ret == 3);
+	assert(strcmp(tokens[0], "un") == 0);
+	assert(strcmp(tokens[1], "deux") == 0);
+	assert(strcmp(tokens[2], "trois") == 0);
+	assert(tokens[3] == NULL);
+	printf("[PASS] Test 1 : Cas nominal\n");
 
-	return !(r1 == 7);
+	strcpy(buffer, "a,b,c,d,e");
+	ret = strcut(buffer, ',', tokens, 3); // max=3 ("a", "b", et NULL)
+	assert(ret == -1);
+	assert(tokens[2] == NULL);
+	printf("[PASS] Test 2 : Dépassement de taille (Overflow)\n");
+
+	strcpy(buffer, "a,b,c");
+	ret = strcut(buffer, ',', tokens, 4);
+	assert(ret == 3);
+	assert(strcmp(tokens[2], "c") == 0);
+	assert(tokens[3] == NULL);
+	printf("[PASS] Test 3 : Taille exacte\n");
+
+	strcpy(buffer, "");
+	ret = strcut(buffer, ',', tokens, 10);
+	assert(ret == 0);
+	assert(tokens[0] == NULL);
+	printf("[PASS] Test 4 : Chaîne vide\n");
+
+	strcpy(buffer, "unseultoken");
+	ret = strcut(buffer, ',', tokens, 10);
+	assert(ret == 1);
+	assert(strcmp(tokens[0], "unseultoken") == 0);
+	assert(tokens[1] == NULL);
+	printf("[PASS] Test 5 : Aucun séparateur\n");
+
+	strcpy(buffer, "a,,b,c,"); // Ignore les virgules en double et à la fin
+	ret = strcut(buffer, ',', tokens, 10);
+	assert(ret == 3);
+	assert(strcmp(tokens[0], "a") == 0);
+	assert(strcmp(tokens[1], "b") == 0);
+	assert(strcmp(tokens[2], "c") == 0);
+	assert(tokens[3] == NULL);
+	printf("[PASS] Test 6 : Séparateurs multiples (ignorés)\n");
+
+	strcpy(buffer, "a,b");
+	ret = strcut(buffer, ',', tokens, 1);
+	assert(ret == -1);
+	assert(tokens[0] == NULL);
+	printf("[PASS] Test 7 : Cas limite (max=1)\n");
+
+	strcpy(buffer, "a,b");
+	ret = strcut(buffer, ',', tokens, 0);
+	assert(ret == -1);
+	printf("[PASS] Test 8 : Cas limite (max=0)\n");
+
+	printf("\nTous les tests ont réussi !\n");
 }
 
 void test_substenv()
@@ -216,35 +261,30 @@ void test_substenv()
 	setenv("EMPTY_VAR", "", 1);
 	unsetenv("NON_EXISTENT_VAR"); // On s'assure qu'elle n'existe pas
 
-	// --- Test 1 : Pas de substitution ---
 	strcpy(buffer, "bonjour tout le monde");
 	ret = substenv(buffer, 1024);
 	assert(ret == 0);
 	assert(strcmp(buffer, "bonjour tout le monde") == 0);
 	printf("[PASS] Test 1 : Pas de substitution\n");
 
-	// --- Test 2 : Substitution simple $VAR ---
 	strcpy(buffer, "bonjour $TEST_VAR");
 	ret = substenv(buffer, 1024);
 	assert(ret == 0);
 	assert(strcmp(buffer, "bonjour monde") == 0);
 	printf("[PASS] Test 2 : Substitution simple\n");
 
-	// --- Test 3 : Substitution avec accolades ${VAR} ---
 	strcpy(buffer, "bonjour ${TEST_VAR} !");
 	ret = substenv(buffer, 1024);
 	assert(ret == 0);
 	assert(strcmp(buffer, "bonjour monde !") == 0);
 	printf("[PASS] Test 3 : Substitution avec accolades\n");
 
-	// --- Test 4 : Variable inexistante (doit être remplacée par vide) ---
 	strcpy(buffer, "bonjour $NON_EXISTENT_VAR!");
 	ret = substenv(buffer, 1024);
 	assert(ret == 0);
 	assert(strcmp(buffer, "bonjour !") == 0);
 	printf("[PASS] Test 4 : Variable inexistante\n");
 
-	// --- Test 5 : Variables multiples et collées ---
 	setenv("A", "1", 1);
 	setenv("B", "2", 1);
 	strcpy(buffer, "test $A$B ${A}.${B}");
@@ -253,40 +293,30 @@ void test_substenv()
 	assert(strcmp(buffer, "test 12 1.2") == 0);
 	printf("[PASS] Test 5 : Variables multiples\n");
 
-	// --- Test 6 : Syntaxe invalide ou littéraux ---
-	// $ seul, ou suivi d'un espace, ou ${ non fermé
 	strcpy(buffer, "Prix: 10$ payables. ou ${incomplet");
 	ret = substenv(buffer, 1024);
 	assert(ret == 0);
-	// Selon l'implémentation fournie précédemment, ces cas sont traités comme littéraux
 	assert(strcmp(buffer, "Prix: 10$ payables. ou ${incomplet") == 0);
 	printf("[PASS] Test 6 : Syntaxe invalide ($ littéral)\n");
 
-	// --- Test 7 : Dépassement de taille (Overflow) lors d'une substitution ---
 	strcpy(buffer, "Start $LONG_VAR end");
 	// La chaine finale devrait faire : 6 ("Start ") + 46 (valeur) + 4 (" end") = 56 chars.
-	// On donne un max de 50. Ça doit échouer.
 	ret = substenv(buffer, 50);
 	assert(ret == -1);
-	// Vérifier que le buffer original n'est PAS corrompu en cas d'échec (si l'implémentation le permet)
 	assert(strcmp(buffer, "Start $LONG_VAR end") == 0);
 	printf("[PASS] Test 7 : Dépassement de taille (Overflow)\n");
 
-	// --- Test 8 : Taille exacte (Limite) ---
 	setenv("KEY", "VAL", 1);
 	strcpy(buffer, "$KEY");
-	// "VAL" fait 3 chars. Il faut max=4 pour inclure le \0.
 	ret = substenv(buffer, 4);
 	assert(ret == 0);
 	assert(strcmp(buffer, "VAL") == 0);
 
-	// Réessai avec max=3 (trop court pour "VAL\0")
 	strcpy(buffer, "$KEY");
 	ret = substenv(buffer, 3);
 	assert(ret == -1);
 	printf("[PASS] Test 8 : Tests aux limites de taille exacte\n");
 
-	// --- Test 9 : Cas limites des paramètres ---
 	ret = substenv(NULL, 1024);
 	assert(ret == -1);
 	strcpy(buffer, "$TEST_VAR");
@@ -294,7 +324,6 @@ void test_substenv()
 	assert(ret == -1);
 	printf("[PASS] Test 9 : Paramètres invalides (NULL ou size 0)\n");
 
-	// --- Test 10 : Variable vide ---
 	strcpy(buffer, "Vide[$EMPTY_VAR]");
 	ret = substenv(buffer, 1024);
 	assert(ret == 0);

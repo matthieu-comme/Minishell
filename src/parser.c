@@ -279,17 +279,26 @@ int substenv(char *str, size_t max)
  */
 int strcut(char *str, char sep, char **tokens, size_t max)
 {
+    if (max == 0)
+        return -1;
 
-    const char separator[] = {sep};
+    const char separator[] = {sep, '\0'};
     int nb_tokens = 0;
 
     char *token = strtok(str, separator);
     while (token != NULL)
     {
+        if (nb_tokens >= max - 1) // dépassement de taille
+        {
+            tokens[max - 1] = NULL;
+            return -1;
+        }
         tokens[nb_tokens] = token;
         nb_tokens++;
         token = strtok(NULL, separator);
     }
+
+    tokens[nb_tokens] = NULL;
     return nb_tokens;
 }
 
@@ -307,8 +316,10 @@ int strcut(char *str, char sep, char **tokens, size_t max)
 int parse_command_line(command_line_t *cmdl, const char *line)
 {
     // Copie de la ligne de commande dans la structure
-    // strncpy(cmdl->command_line, line, MAX_CMD_LINE - 1); ces 2 lignes peuvent causer un bug
-    // cmdl->command_line[MAX_CMD_LINE - 1] = '\0';
+    // ces 2 lignes peuvent causer un bug selon le prof ?
+    strncpy(cmdl->command_line, line, MAX_CMD_LINE - 1);
+    cmdl->command_line[MAX_CMD_LINE - 1] = '\0';
+
     // Suppression des espaces inutiles au début et à la fin
     if (trim(cmdl->command_line) != 0)
     {
