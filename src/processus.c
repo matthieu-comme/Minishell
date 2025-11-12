@@ -31,8 +31,32 @@
  * - *end_time*: {0}
  * - *cf*: NULL
  */
-int init_processus(processus_t* proc) {
+int init_processus(processus_t *proc)
+{
+    if (proc == NULL)
+        return -1;
 
+    proc->pid = 0;
+    proc->argv[0] = NULL;
+    proc->envp[0] = NULL;
+    proc->path = NULL;
+
+    proc->stdin_fd = 0;
+    proc->stdout_fd = 1;
+    proc->stderr_fd = 2;
+
+    proc->status = 0;
+    proc->is_background = 0;
+    proc->invert = 0;
+
+    proc->start_time.tv_sec = 0;
+    proc->start_time.tv_nsec = 0;
+    proc->end_time.tv_sec = 0;
+    proc->end_time.tv_nsec = 0;
+
+    proc->cf = NULL;
+
+    return 0;
 }
 
 /** @brief Fonction de lancement d'un processus à partir d'une structure de processus.
@@ -46,8 +70,8 @@ int init_processus(processus_t* proc) {
  *    Les temps de démarrage et d'arrêt sont enregistrés dans *start_time* et *end_time* respectivement. *end_time* est mis à jour uniquement si *is_background* est désactivé.
  *    Les descripteurs de fichiers ouverts sont gérés dans *cf->cmdl->opened_descriptors* : le processus "fils" ferme tous les descripteurs listés dans ce tableau avant d'exécuter la commande.
  */
-int launch_processus(processus_t* proc) {
-
+int launch_processus(processus_t *proc)
+{
 }
 
 /** @brief Fonction d'initialisation d'une structure de contrôle de flux.
@@ -60,8 +84,15 @@ int launch_processus(processus_t* proc) {
  * - *on_failure_next*: NULL
  * - *cmdl*: NULL
  */
-int init_control_flow(control_flow_t* cf) {
+int init_control_flow(control_flow_t *cf)
+{
     // Ici, un appel à bzero permettrais sûrement de faire le travail en une seule ligne
+    if (cf == NULL)
+        return -1;
+
+    bzero(cf, sizeof(control_flow_t));
+
+    return 0;
 }
 
 /** @brief Fonction d'ajout d'un processus à la structure de contrôle de flux.
@@ -75,8 +106,8 @@ int init_control_flow(control_flow_t* cf) {
  * - Si *mode* est ON_SUCCESS, *proc* est ajouté à la liste des processus à exécuter uniquement si le processus courant s'est terminé avec succès (code de retour 0).
  * - Si *mode* est ON_FAILURE, *proc* est ajouté à la liste des processus à exécuter uniquement si le processus courant s'est terminé avec un échec (code de retour non nul).
  */
-processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
-
+processus_t *add_processus(command_line_t *cmdl, control_flow_mode_t mode)
+{
 }
 
 /** @brief Fonction de récupération du prochain processus à exécuter selon le contrôle de flux.
@@ -86,8 +117,8 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
  *  Si le nombre maximum de commandes est atteint (MAX_CMDS), la fonction retourne NULL.
  *  Cela permet notamment d'initialiser les descripteurs des IOs standards qui dépendent du processus en court de traitement (dans le cas des pipes par exemple).
  */
-processus_t* next_processus(command_line_t* cmdl) {
-
+processus_t *next_processus(command_line_t *cmdl)
+{
 }
 
 /** @brief Fonction d'ajout d'un descripteur de fichier à la structure de contrôle de flux.
@@ -97,8 +128,31 @@ processus_t* next_processus(command_line_t* cmdl) {
  * @details Cette fonction ajoute le descripteur de fichier *fd* au tableau *opened_descriptors* de la structure *cf*.
  *    Si le tableau est plein ou si *fd* est invalide (négatif), la fonction retourne -1
  */
-int add_fd(command_line_t* cmdl, int fd) {
+int add_fd(command_line_t *cmdl, int fd)
+{
+    // fd invalide
+    if (fd < 0)
+        return -1;
 
+    if (cmdl == NULL)
+    {
+        return -1;
+    }
+
+    // taille max (cf processus.h)
+    int max = MAX_CMDS * 3 + 1;
+
+    // recherche d'un emplacement libre
+    for (int i = 0; i < max; i++)
+    {
+        if (cmdl->opened_descriptors[i] == -1)
+        {
+            cmdl->opened_descriptors[i] = fd;
+            return 0;
+        }
+    }
+
+    return -1; // erreur : tableau plein
 }
 
 /** @brief Fonction de fermeture des descripteurs de fichiers listés dans la structure de contrôle de flux.
@@ -107,8 +161,26 @@ int add_fd(command_line_t* cmdl, int fd) {
  * @details Cette fonction ferme tous les descripteurs de fichiers listés dans le tableau *opened_descriptors* de la structure *cf*.
  *    Après fermeture, les entrées du tableau sont remises à -1.
  */
-int close_fds(command_line_t* cmdl) {
+int close_fds(command_line_t *cmdl)
+{
+    if (cmdl == NULL)
+        return -1;
 
+    int result = 0;
+    int max = MAX_CMDS * 3 + 1;
+
+    for (int i = 0; i < max; i++)
+    {
+        if (cmdl->opened_descriptors[i] != -1)
+        {
+            // ferme le descripteur
+            if (close(cmdl->opened_descriptors[i]) == -1) // erreur fermeture
+                result = -1;
+
+            cmdl->opened_descriptors[i] = -1;
+        }
+    }
+    return result; // 0 si tout nickel, -1 si au moins une erreur
 }
 
 /** @brief Fonction d'initialisation d'une structure de ligne de commande.
@@ -122,8 +194,8 @@ int close_fds(command_line_t* cmdl) {
  * - *num_commands*: 0
  * - *opened_descriptors*: {-1}
  */
-int init_command_line(command_line_t* cmdl) {
-
+int init_command_line(command_line_t *cmdl)
+{
 }
 
 /** @brief Fonction de lancement d'une ligne de commande.
@@ -134,6 +206,6 @@ int init_command_line(command_line_t* cmdl) {
  *    Le tableau *opened_descriptors* est utilisé pour fermer les descripteurs ouverts au moment de l'initialisation des structures processus_t.
  *    La fonction retourne 0 si tous les processus à lancer en fonction du contrôle de flux ont pu être lancés sans erreur.
  */
-int launch_command_line(command_line_t* cmdl) {
-
+int launch_command_line(command_line_t *cmdl)
+{
 }

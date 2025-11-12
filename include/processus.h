@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <time.h>
+#include <fcntl.h>
 
 /// Nombre maximum d'arguments
 #define MAX_ARGS 128
@@ -28,7 +29,8 @@
  * @enum control_flow_mode_t
  * @details Cette énumération définit les différents modes de contrôle de flux pour l'exécution des processus.
  */
-typedef enum {
+typedef enum
+{
     UNCONDITIONAL, ///< Exécution inconditionnelle
     ON_SUCCESS,    ///< Exécution en cas de succès
     ON_FAILURE     ///< Exécution en cas d'échec
@@ -42,11 +44,12 @@ struct command_line; // Déclaration anticipée pour l'utilisation dans control_
  * @struct processus_t
  * @details Cette structure contient des informations sur un processus: PID, arguments, variables d'environnement, descripteurs des IO standards, le statut de sortie, un "flag" d'exécution en arrière-plan, et les temps de démarrage/arrêt.
  */
-typedef struct {
-    pid_t pid;                  ///< Process ID
-    char* argv[MAX_ARGS];       ///< Liste des arguments
-    char* envp[MAX_ENV];        ///< Variables d'environnement
-    char* path;                 ///< Chemin de l'exécutable
+typedef struct
+{
+    pid_t pid;            ///< Process ID
+    char *argv[MAX_ARGS]; ///< Liste des arguments
+    char *envp[MAX_ENV];  ///< Variables d'environnement
+    char *path;           ///< Chemin de l'exécutable
 
     int stdin_fd;               ///< Descripteur d'entrée standard
     int stdout_fd;              ///< Descripteur de sortie standard
@@ -56,19 +59,20 @@ typedef struct {
     uint8_t invert;             ///< Inversion du code de retour pour le contrôle de flux
     struct timespec start_time; ///< Start time
     struct timespec end_time;   ///< End time
-    struct control_flow* cf;    ///< Pointeur vers la structure de contrôle de flux associée
+    struct control_flow *cf;    ///< Pointeur vers la structure de contrôle de flux associée
 } processus_t;
 
-/** @brief Structure de contrôle de flux. 
+/** @brief Structure de contrôle de flux.
  * @struct control_flow_t
  * @details Cette structure permet de gérer le flux d'exécution des processus.
-*/
-typedef struct control_flow {
-    processus_t* proc;                     ///< Pointeur vers la structure du processus courant
-    struct control_flow* unconditionnal_next; ///< Pointeur vers la prochaine structure de processus en cas d'exécution inconditionnelle
-    struct control_flow* on_success_next;     ///< Pointeur vers la prochaine structure de processus en cas d'exécution réussie
-    struct control_flow* on_failure_next;     ///< Pointeur vers la prochaine structure de processus en cas d'échec de l'exécution
-    struct command_line* cmdl;                     ///< Pointeur vers la structure de ligne de commande associée
+ */
+typedef struct control_flow
+{
+    processus_t *proc;                        ///< Pointeur vers la structure du processus courant
+    struct control_flow *unconditionnal_next; ///< Pointeur vers la prochaine structure de processus en cas d'exécution inconditionnelle
+    struct control_flow *on_success_next;     ///< Pointeur vers la prochaine structure de processus en cas d'exécution réussie
+    struct control_flow *on_failure_next;     ///< Pointeur vers la prochaine structure de processus en cas d'échec de l'exécution
+    struct command_line *cmdl;                ///< Pointeur vers la structure de ligne de commande associée
 } control_flow_t;
 
 /**
@@ -79,12 +83,13 @@ typedef struct control_flow {
  * Le schéma suivant illustre la relation entre les structures:
  * \image html schema_struct.png
  */
-typedef struct command_line {
-    char command_line[MAX_CMD_LINE];  ///< Ligne de commande complète
-    char* tokens[MAX_CMD_LINE / 2 + 1]; ///< Tableau des tokens extraits de la ligne de commande
-    processus_t commands[MAX_CMDS];   ///< Tableau des structures de processus
-    control_flow_t flow[MAX_CMDS];    ///< Structure de contrôle de flux
-    unsigned int num_commands;        ///< Nombre de commandes
+typedef struct command_line
+{
+    char command_line[MAX_CMD_LINE];          ///< Ligne de commande complète
+    char *tokens[MAX_CMD_LINE / 2 + 1];       ///< Tableau des tokens extraits de la ligne de commande
+    processus_t commands[MAX_CMDS];           ///< Tableau des structures de processus
+    control_flow_t flow[MAX_CMDS];            ///< Structure de contrôle de flux
+    unsigned int num_commands;                ///< Nombre de commandes
     int opened_descriptors[MAX_CMDS * 3 + 1]; ///< Tableau des descripteurs de fichiers ouverts
 } command_line_t;
 
@@ -107,7 +112,7 @@ typedef struct command_line {
  * - *end_time*: {0}
  * - *cf*: NULL
  */
-int init_processus(processus_t* proc);
+int init_processus(processus_t *proc);
 
 /** @brief Fonction de lancement d'un processus à partir d'une structure de processus.
  * @param proc Pointeur vers la structure de processus à lancer.
@@ -120,7 +125,7 @@ int init_processus(processus_t* proc);
  *    Les temps de démarrage et d'arrêt sont enregistrés dans *start_time* et *end_time* respectivement. *end_time* est mis à jour uniquement si *is_background* est désactivé.
  *    Les descripteurs de fichiers ouverts sont gérés dans *cf->cmdl->opened_descriptors* : le processus "fils" ferme tous les descripteurs listés dans ce tableau avant d'exécuter la commande.
  */
-int launch_processus(processus_t* proc);
+int launch_processus(processus_t *proc);
 
 /** @brief Fonction d'initialisation d'une structure de contrôle de flux.
  * @param cf Pointeur vers la structure de contrôle de flux à initialiser.
@@ -132,7 +137,7 @@ int launch_processus(processus_t* proc);
  * - *on_failure_next*: NULL
  * - *cmdl*: NULL
  */
-int init_control_flow(control_flow_t* cf);
+int init_control_flow(control_flow_t *cf);
 
 /** @brief Fonction d'ajout d'un processus à la structure de contrôle de flux.
  * @param cmdl Pointeur vers la structure de ligne de commande dans laquelle le processus doit être ajouté.
@@ -145,7 +150,7 @@ int init_control_flow(control_flow_t* cf);
  * - Si *mode* est ON_SUCCESS, *proc* est ajouté à la liste des processus à exécuter uniquement si le processus courant s'est terminé avec succès (code de retour 0).
  * - Si *mode* est ON_FAILURE, *proc* est ajouté à la liste des processus à exécuter uniquement si le processus courant s'est terminé avec un échec (code de retour non nul).
  */
-processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode);
+processus_t *add_processus(command_line_t *cmdl, control_flow_mode_t mode);
 
 /** @brief Fonction de récupération du prochain processus à exécuter selon le contrôle de flux.
  * @param cmdl Pointeur vers la structure de ligne de commande.
@@ -154,7 +159,7 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode);
  *  Si le nombre maximum de commandes est atteint (MAX_CMDS), la fonction retourne NULL.
  *  Cela permet notamment d'initialiser les descripteurs des IOs standards qui dépendent du processus en court de traitement (dans le cas des pipes par exemple).
  */
-processus_t* next_processus(command_line_t* cmdl);
+processus_t *next_processus(command_line_t *cmdl);
 
 /** @brief Fonction d'ajout d'un descripteur de fichier à la structure de contrôle de flux.
  * @param cmdl Pointeur vers la structure de ligne de commande.
@@ -163,7 +168,7 @@ processus_t* next_processus(command_line_t* cmdl);
  * @details Cette fonction ajoute le descripteur de fichier *fd* au tableau *opened_descriptors* de la structure *cf*.
  *    Si le tableau est plein ou si *fd* est invalide (négatif), la fonction retourne -1
  */
-int add_fd(command_line_t* cmdl, int fd);
+int add_fd(command_line_t *cmdl, int fd);
 
 /** @brief Fonction de fermeture des descripteurs de fichiers listés dans la structure de contrôle de flux.
  * @param cmdl Pointeur vers la structure de ligne de commande.
@@ -171,7 +176,7 @@ int add_fd(command_line_t* cmdl, int fd);
  * @details Cette fonction ferme tous les descripteurs de fichiers listés dans le tableau *opened_descriptors* de la structure *cf*.
  *    Après fermeture, les entrées du tableau sont remises à -1.
  */
-int close_fds(command_line_t* cmdl);
+int close_fds(command_line_t *cmdl);
 
 /** @brief Fonction d'initialisation d'une structure de ligne de commande.
  * @param cmdl Pointeur vers la structure de ligne de commande à initialiser.
@@ -184,7 +189,7 @@ int close_fds(command_line_t* cmdl);
  * - *num_commands*: 0
  * - *opened_descriptors*: {-1}
  */
-int init_command_line(command_line_t* cmdl);
+int init_command_line(command_line_t *cmdl);
 
 /** @brief Fonction de lancement d'une ligne de commande.
  * @param cmdl Pointeur vers la structure de ligne de commande à lancer.
@@ -194,5 +199,5 @@ int init_command_line(command_line_t* cmdl);
  *    Le tableau *opened_descriptors* est utilisé pour fermer les descripteurs ouverts au moment de l'initialisation des structures processus_t.
  *    La fonction retourne 0 si tous les processus à lancer en fonction du contrôle de flux ont pu être lancés sans erreur.
  */
-int launch_command_line(command_line_t* cmdl);
+int launch_command_line(command_line_t *cmdl);
 #endif

@@ -1,6 +1,8 @@
 #include "../include/parser.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #define MAX 100
 // make clean
 // make
@@ -338,7 +340,7 @@ int main()
 	print_test_result("test_trim", test_trim());
 	print_test_result("test_replace", test_replace());
 	print_test_result("test_clean", test_clean());
-	print_test_result("test_strcut", test_strcut());
+	test_strcut();
 	test_separate_s();
 	test_substenv();
 
