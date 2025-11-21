@@ -18,16 +18,20 @@
  * @return int 1 si la commande est intégrée, 0 sinon.
  * @details Les commandes intégrées sont a minima: cd, exit, export, unset, pwd.
  */
-int is_builtin(const processus_t* cmd) {
-
+int is_builtin(const processus_t *cmd)
+{
+    if (!cmd || !cmd->argv[0])
+        return 0;
+    const char *c = cmd->argv[0];
+    return strcmp(c, "cd") == 0 || strcmp(c, "exit") == 0 || strcmp(c, "export") == 0 || strcmp(c, "unset") == 0 || strcmp(c, "pwd") == 0;
 }
 
 /** @brief Fonction d'exécution d'une commande intégrée.
  * @param cmd Pointeur vers la structure de commande à exécuter.
  * @return int 0 en cas de succès, -1 en cas d'erreur.
  */
-int exec_builtin(processus_t* cmd) {
-
+int exec_builtin(processus_t *cmd)
+{
 }
 
 /** Fonctions spécifiques aux commandes intégrées. */
@@ -38,8 +42,8 @@ int exec_builtin(processus_t* cmd) {
  *  Si aucun argument n'est fourni, le CWD est déplacé vers le répertoire HOME de l'utilisateur.
  *  En cas d'erreur (répertoire inexistant, permission refusée, etc.), un message d'erreur est affiché sur *cmd->stderr* et la fonction retourne un code d'erreur.
  */
-int builtin_cd(processus_t* cmd) {
-
+int builtin_cd(processus_t *cmd)
+{
 }
 
 /** @brief Fonction d'exécution de la commande "exit".
@@ -49,8 +53,8 @@ int builtin_cd(processus_t* cmd) {
  *  Si aucun argument n'est fourni, le shell se termine avec le code de sortie 0.
  *  En cas d'erreur (argument non numérique, etc.), un message d'erreur est affiché sur *cmd->stderr* et la fonction retourne un code d'erreur
  */
-int builtin_exit(processus_t* cmd) {
-
+int builtin_exit(processus_t *cmd)
+{
 }
 
 /** @brief Fonction d'exécution de la commande "export".
@@ -58,8 +62,8 @@ int builtin_exit(processus_t* cmd) {
  * @return int 0 en cas de succès, -1 en cas d'erreur.
  * @details Ajoute ou modifie une variable d'environnement dans l'environnement du shell. En cas d'erreur (format invalide, etc.), un message d'erreur est affiché sur *cmd->stderr* et la fonction retourne un code d'erreur.
  */
-int builtin_export(processus_t* cmd) {
-
+int builtin_export(processus_t *cmd)
+{
 }
 
 /** @brief Fonction d'exécution de la commande "unset".
@@ -67,8 +71,8 @@ int builtin_export(processus_t* cmd) {
  * @return int 0 en cas de succès, -1 en cas d'erreur.
  * @details Supprime une variable d'environnement de l'environnement du shell. En cas d'erreur (variable inexistante, etc.), un message d'erreur est affiché sur *cmd->stderr* et la fonction retourne un code d'erreur.
  */
-int builtin_unset(processus_t* cmd) {
-
+int builtin_unset(processus_t *cmd)
+{
 }
 
 /** @brief Fonction d'exécution de la commande "pwd".
@@ -76,6 +80,6 @@ int builtin_unset(processus_t* cmd) {
  * @return int 0 en cas de succès, -1 en cas d'erreur.
  * @details Affiche le répertoire de travail actuel (CWD) du processus sur la sortie standard *cmd->stdout*. En cas d'erreur, un message d'erreur est affiché sur *cmd->stderr* et la fonction retourne un code d'erreur.
  */
-int builtin_pwd(processus_t* cmd) {
-
+int builtin_pwd(processus_t *cmd)
+{
 }
