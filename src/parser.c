@@ -413,6 +413,29 @@ int parse_command_line(command_line_t *cmdl, const char *line)
             // Ouvrir le fichier en écriture (O_WRONLY | O_CREAT | O_TRUNC)
             // Ajouter le descripteur à la liste des descripteurs ouverts
             // Affecter le descripteur au stdout_fd du processus courant
+            token_index++;
+            if (!cmdl->tokens[token_index])
+            {
+                fprintf(stderr, "Erreur de syntaxe: fichier attendu après '>'\n");
+                close_fds(cmdl);
+                return -1;
+            }
+            int fd = open(cmdl->tokens[token_index], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0)
+            {
+                perror("open");
+                close_fds(cmdl);
+                return -1;
+            }
+            current_proc->stdout_fd = fd;
+            if (add_fd(cmdl, fd) != 0)
+            {
+                close(fd);
+                close_fds(cmdl);
+                return -1;
+            }
+            token_index++;
+            continue;
         }
 
         if (strcmp(token, ">>") == 0)
@@ -420,16 +443,85 @@ int parse_command_line(command_line_t *cmdl, const char *line)
             // Ouvrir le fichier en écriture (O_WRONLY | O_CREAT | O_APPEND)
             // Ajouter le descripteur à la liste des descripteurs ouverts
             // Affecter le descripteur au stdout_fd du processus courant
+            token_index++;
+            if (!cmdl->tokens[token_index])
+            {
+                fprintf(stderr, "Erreur de syntaxe: fichier attendu après '>>'\n");
+                close_fds(cmdl);
+                return -1;
+            }
+            int fd = open(cmdl->tokens[token_index], O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (fd < 0)
+            {
+                perror("open");
+                close_fds(cmdl);
+                return -1;
+            }
+            current_proc->stdout_fd = fd;
+            if (add_fd(cmdl, fd) != 0)
+            {
+                close(fd);
+                close_fds(cmdl);
+                return -1;
+            }
+            token_index++;
+            continue;
         }
 
         if (strcmp(token, "2>") == 0)
         {
             // Reprendre le même traitement que pour ">", mais pour stderr_fd
+            token_index++;
+            if (!cmdl->tokens[token_index])
+            {
+                fprintf(stderr, "Erreur de syntaxe: fichier attendu après '2>'\n");
+                close_fds(cmdl);
+                return -1;
+            }
+            int fd = open(cmdl->tokens[token_index], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0)
+            {
+                perror("open");
+                close_fds(cmdl);
+                return -1;
+            }
+            current_proc->stderr_fd = fd;
+            if (add_fd(cmdl, fd) != 0)
+            {
+                close(fd);
+                close_fds(cmdl);
+                return -1;
+            }
+            token_index++;
+            continue;
         }
 
         if (strcmp(token, "2>>") == 0)
         {
             // Reprendre le même traitement que pour ">>", mais pour stderr_fd
+            token_index++;
+            if (!cmdl->tokens[token_index])
+            {
+                fprintf(stderr, "Erreur de syntaxe: fichier attendu après '2>>'\n");
+                close_fds(cmdl);
+                return -1;
+            }
+            int fd = open(cmdl->tokens[token_index], O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (fd < 0)
+            {
+                perror("open");
+                close_fds(cmdl);
+                return -1;
+            }
+            current_proc->stderr_fd = fd;
+            if (add_fd(cmdl, fd) != 0)
+            {
+                close(fd);
+                close_fds(cmdl);
+                return -1;
+            }
+            token_index++;
+            continue;
         }
 
         if (strcmp(token, "|") == 0)
@@ -453,11 +545,18 @@ int parse_command_line(command_line_t *cmdl, const char *line)
         if (strcmp(token, "&") == 0)
         {
             // Mettre le flag is_background du processus courant à 1
+
+            current_proc->is_background = 1;
+            token_index++;
+            continue;
         }
 
         if (strcmp(token, "!") == 0)
         {
             // Mettre le flag invert du processus courant à 1
+            current_proc->invert = 1;
+            token_index++;
+            continue;
         }
 
         // Le token n'est pas un opérateur, c'est une commande ou un argument
