@@ -329,12 +329,42 @@ int parse_command_line(command_line_t* cmdl, const char* line) {
             continue;
          }
 
-        if (strcmp(token, "|") == 0) {
-            // Pour la gestion du pipe, vous pourrez utiliser next_processus(cmdl) pour initialiser les descripteurs
-            // des IOs standards de la structure processus_t courante et de la suivante.
-            // next_processus(cmdl) retourne un pointeur vers le processus qui sera renvoyé par add_processus(cmdl, mode)
-            // lors du prochain appel.
-        }
+            if (strcmp(token, "|") == 0) {
+                // Création d'un pipe entre current_proc et le prochain processus
+                int fds[2];
+                if (pipe(fds) < 0) {
+                    perror("pipe");
+                    close_fds(cmdl);
+                    return -1;
+                }
+
+                // stdout du processus courant -> écriture du pipe
+                current_proc->stdout_fd = fds[1];
+
+                // On enregistre les FD pour que les fils les ferment correctement
+                if (add_fd(cmdl, fds[0]) != 0 || add_fd(cmdl, fds[1]) != 0) {
+                    close(fds[0]);
+                    close(fds[1]);
+                    close_fds(cmdl);
+                    return -1;
+                }
+
+                // On crée le processus suivant, inconditionnel (dans un pipe, on exécute tout)
+                current_proc = add_processus(cmdl, UNCONDITIONAL);
+                if (!current_proc) {
+                    close_fds(cmdl);
+                    return -1;
+                }
+
+                // stdin du nouveau processus -> lecture du pipe
+                current_proc->stdin_fd = fds[0];
+
+                // on repart avec un nouvel argv
+                argv_index = 0;
+                token_index++;
+                continue;
+            }
+
 
         if (strcmp(token, "&&") == 0 || strcmp(token, "||") == 0) {
             // Créer un nouveau processus
