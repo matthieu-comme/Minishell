@@ -6,7 +6,7 @@
 #define MAX 100
 // make clean
 // make
-// ./test
+// ./test_parser
 
 void print_test_result(char *func_name, int test_result)
 {
