@@ -110,26 +110,45 @@ int builtin_exit(processus_t *cmd)
  */
 int builtin_export(processus_t *cmd)
 {
-
     // Format attendu: export VAR=val
     if (!cmd->argv[1])
         return 0;
+
     for (int i = 1; cmd->argv[i]; ++i)
     {
-        char *eq = strchr(cmd->argv[i], '=');
-        if (!eq)
+        char *arg = cmd->argv[i];
+        char *eq = strchr(arg, '=');
+
+        // pas de = ou = au début
+        if (!eq || eq == arg)
         {
             dprintf(cmd->stderr_fd, "export: format VAR=val requis\n");
             return -1;
         }
-        *eq = '\0';
-        char *var = cmd->argv[i];
-        char *val = eq + 1;
-        if (setenv(var, val, 1) != 0)
+
+        int var_len = eq - arg;
+
+        // extrait le nom de la var et sa valeur
+        char *var_name = malloc(var_len + 1);
+        if (!var_name)
         {
-            dprintf(cmd->stderr_fd, "export: échec pour %s\n", var);
+            perror("malloc");
             return -1;
         }
+
+        strncpy(var_name, arg, var_len);
+        var_name[var_len] = '\0';
+
+        char *val = eq + 1;
+
+        if (setenv(var_name, val, 1) != 0)
+        {
+            dprintf(cmd->stderr_fd, "export: échec pour %s\n", var_name);
+            free(var_name);
+            return -1;
+        }
+
+        free(var_name);
     }
     return 0;
 }
@@ -141,12 +160,21 @@ int builtin_export(processus_t *cmd)
  */
 int builtin_unset(processus_t *cmd)
 {
-
     if (!cmd->argv[1])
         return 0;
+
+    int ret = 0;
+
     for (int i = 1; cmd->argv[i]; ++i)
-        unsetenv(cmd->argv[i]);
-    return 0;
+    {
+        if (unsetenv(cmd->argv[i]) != 0)
+        {
+            dprintf(cmd->stderr_fd, "unset: identifiant invalide '%s'\n", cmd->argv[i]);
+            ret = -1;
+        }
+    }
+
+    return ret;
 }
 
 /** @brief Fonction d'exécution de la commande "pwd".
