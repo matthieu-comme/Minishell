@@ -1,0 +1,7 @@
+Makefile
+build
+doc
+include
+minishell
+out.txt
+src

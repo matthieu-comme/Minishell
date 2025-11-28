@@ -57,44 +57,96 @@
  *    Les temps de démarrage et d'arrêt sont enregistrés dans *start_time* et *end_time* respectivement. *end_time* est mis à jour uniquement si *is_background* est désactivé.
  *    Les descripteurs de fichiers ouverts sont gérés dans *cf->cmdl->opened_descriptors* : le processus "fils" ferme tous les descripteurs listés dans ce tableau avant d'exécuter la commande.
  */
-int launch_processus(processus_t* proc) {
-    if (!proc || !proc->argv[0]) {
-        fprintf(stderr, "Erreur: commande invalide\n");
-        return -1;
+        int launch_processus(processus_t* proc) {
+            if (!proc || !proc->argv[0]) {
+                fprintf(stderr, "Erreur: commande invalide\n");
+                return -1;
+            }
+
+        if (is_builtin(proc)) {
+        int rc = exec_builtin(proc);
+        proc->status = (rc == 0) ? 0 : 1;
+        return 0;
     }
 
-    // Vérifier si c'est une commande intégrée
-        if (is_builtin(proc)) {  // Passez le processus entier, pas juste argv[0]
-            return exec_builtin(proc);  // Le bon nom de fonction est exec_builtin
+            /* ========= 2) COMMANDES EXTERNES ========= */
+            pid_t pid = fork();
+            if (pid < 0) {
+                perror("fork failed");
+                proc->status = 1;
+                return -1;
+            }
+
+            if (pid == 0) {
+                /* ----- Processus fils ----- */
+
+                // Appliquer les redirections
+                if (proc->stdin_fd != 0) {
+                    dup2(proc->stdin_fd, STDIN_FILENO);
+                }
+                if (proc->stdout_fd != 1) {
+                    dup2(proc->stdout_fd, STDOUT_FILENO);
+                }
+                if (proc->stderr_fd != 2) {
+                    dup2(proc->stderr_fd, STDERR_FILENO);
+                }
+
+                // Fermer les descripteurs recensés dans opened_descriptors
+                if (proc->cf && proc->cf->cmdl) {
+                    for (int i = 0; i < MAX_OPENED; ++i) {
+                        int fd = proc->cf->cmdl->opened_descriptors[i];
+                        if (fd >= 3) {   // on ne ferme pas 0,1,2
+                            close(fd);
+                        }
+                    }
+                }
+
+                // Choisir le chemin à exécuter : path si défini, sinon argv[0]
+                const char* path = proc->path ? proc->path : proc->argv[0];
+                execvp(path, proc->argv);
+                perror("execvp failed");
+                _exit(127);
+            }
+
+            /* ----- Processus père ----- */
+            proc->pid = pid;
+
+            // Très important pour les pipes et redirections :
+            // le père n'a plus besoin de ses copies des FDs de redirection.
+            if (proc->stdin_fd > 2)  close(proc->stdin_fd);
+            if (proc->stdout_fd > 2) close(proc->stdout_fd);
+            if (proc->stderr_fd > 2) close(proc->stderr_fd);
+
+            // (optionnel mais propre) : revenir aux valeurs par défaut dans la struct
+            proc->stdin_fd  = 0;
+            proc->stdout_fd = 1;
+            proc->stderr_fd = 2;
+
+            // Si exécution en arrière-plan (&), on ne bloque pas
+            if (proc->is_background) {
+                proc->status = 0;   // on considère que le lancement est OK
+                return 0;
+            }
+
+            // Avant-plan : on attend la fin du processus
+            int status = 0;
+            if (waitpid(pid, &status, 0) < 0) {
+                perror("waitpid");
+                proc->status = 1;
+                return -1;
+            }
+
+            if (WIFEXITED(status)) {
+                proc->status = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                proc->status = 128 + WTERMSIG(status);
+            } else {
+                proc->status = 1;
+            }
+
+            return 0;
         }
 
-    // Pour les commandes externes
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("fork failed");
-        return -1;
-    }
-
-    if (pid == 0) {
-        // Processus fils
-        execvp(proc->argv[0], proc->argv);
-        perror("execvp failed");
-        _exit(127);
-    }
-
-    // Processus père
-    int status = 0;
-    waitpid(pid, &status, 0);
-    if (WIFEXITED(status)) {
-        proc->status = WEXITSTATUS(status);
-        printf("DEBUG: Process %s exited with status %d\n", proc->argv[0], proc->status);
-    } else {
-        proc->status = 128 + WTERMSIG(status);
-        printf("DEBUG: Process %s failed with signal %d\n", proc->argv[0], WTERMSIG(status));
-    }
-
-    return 0;
-}
 
 
 /** @brief Fonction d'initialisation d'une structure de contrôle de flux.
@@ -151,10 +203,6 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
         else if (mode == ON_FAILURE)
             prev_cf->on_failure_next = cf;
     }
-
-    // DEBUG: Log the addition of process and link
-    printf("DEBUG: Process %d added with mode %d. current_proc = %p\n", cmdl->num_commands, mode, (void*)proc);
-
     cmdl->num_commands++;
     return proc;
 }
@@ -245,24 +293,13 @@ int launch_command_line(command_line_t* cmdl) {
     while (cur) {
         processus_t* p = cur->proc;
 
-        printf("DEBUG: Launching command: %s\n", p->argv[0] ? p->argv[0] : "(null)");
-if (p->argv[0]) {  // On vérifie si le premier argument existe {
-            for (int i = 0; p->argv[i]; i++) {
-                printf("  argv[%d] = %s\n", i, p->argv[i]);
-            }
-        }
-
         // Lancer le processus courant
         launch_processus(p);   // Lance le processus
         int status = p->status; // Récupère le statut du processus
 
-        // Log de débogage pour afficher le statut avant l'inversion
-        printf("DEBUG: Process %s status = %d\n", p->argv[0], status);
-
         // Inversion éventuelle (si le processus a échoué, inverser le statut)
         if (p->invert) {
             status = (status == 0) ? 1 : 0;  // Inverse le statut (0 -> 1, 1 -> 0)
-            printf("DEBUG: Inverted status = %d\n", status);  // Afficher l'inversion
         }
 
         // Choisir le prochain maillon en fonction du statut
@@ -271,18 +308,13 @@ if (p->argv[0]) {  // On vérifie si le premier argument existe {
         } else if (status == 0 && cur->on_success_next) {
             // Si succès (status == 0), passer à la commande suivante en cas de succès
             cur = cur->on_success_next;
-            printf("DEBUG: Moving to next process (on_success)\n");
         } else if (status != 0 && cur->on_failure_next) {
             // Si échec (status != 0), passer à la commande suivante en cas d'échec
             cur = cur->on_failure_next;
-            printf("DEBUG: Moving to next process (on_failure)\n");
         } else {
             // Si aucun maillon suivant, arrêter la boucle
             cur = NULL;
         }
-
-        // Log de débogage pour vérifier que current_proc est mis à jour
-        printf("DEBUG: current_proc = %p\n", (void*)cur);
     }
 
     // Nettoyage

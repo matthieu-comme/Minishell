@@ -155,32 +155,71 @@
     return 0;
 }
 
-/** @brief Fonction de découpage d'une chaîne de caractères en tokens selon un séparateur.
- * @param str Chaîne de caractères à découper. Attention, cette chaîne est modifiée par la fonction.
- * @param sep Caractère séparateur.
- * @param tokens Tableau de chaînes de caractères pour stocker les tokens extraits. Le tableau est terminé par un pointeur NULL.
- * @param max Taille maximale du tableau *tokens*.
- * @return int Nombre de tokens extraits, -1 en cas d'erreur (dépassement de taille).
- * @details Cette fonction découpe la chaîne *str* en tokens en utilisant le caractère *sep* comme séparateur.
- *    Les tokens extraits sont stockés dans le tableau *tokens*.
- *    Si le nombre de tokens dépasse la taille maximale *max*, la fonction retourne -1.
+/**
+ * @brief Découpe une chaîne en tokens en tenant compte des guillemets
+ * @param str Chaîne à découper
+ * @param sep Séparateur
+ * @param tokens Tableau de tokens
+ * @param max Nombre maximum de tokens
+ * @return Nombre de tokens ou -1 en cas d'erreur
  */
- int strcut(char* str, char sep, char** tokens, size_t max) {
-
+int strcut(char* str, char sep, char** tokens, size_t max) {
     if (!str || !tokens || max == 0) return -1;
+    
     size_t n = 0;
     char* p = str;
+    int in_quotes = 0;
+    char quote_char = 0;
+    
     while (*p && n + 1 < max) {
-        while (*p == sep) p++;
+        // Sauter les espaces au début
+        while (*p == ' ' || *p == '\t') p++;
         if (!*p) break;
-        tokens[n++] = p;
-        while (*p && *p != sep) p++;
-        if (*p) { *p = '\0'; p++; }
+
+        // Détection des guillemets
+        if (*p == '"' || *p == '\'') {
+            if (!in_quotes) {
+                in_quotes = 1;
+                quote_char = *p;
+                p++;  // Passer le guillemet d'ouverture
+                tokens[n++] = p;  // Commencer le token après le guillemet
+                continue;
+            } else if (*p == quote_char) {
+                // Fin du guillemet
+                *p = '\0';  // Remplacer le guillemet de fermeture par \0
+                p++;
+                in_quotes = 0;
+                continue;
+            }
+        }
+
+        // Si on est dans des guillemets, on avance juste
+        if (in_quotes) {
+            p++;
+            continue;
+        }
+
+        // Pour les caractères normaux (hors guillemets)
+        tokens[n++] = p;  // Début du token
+        
+        // Trouver la fin du token
+        while (*p && *p != sep && *p != ' ' && *p != '\t') p++;
+        if (!*p) break;
+        
+        // Terminer le token
+        *p = '\0';
+        p++;
     }
-    if (n + 1 >= max) return -1;
-    tokens[n] = NULL; 
+
+    if (in_quotes) {
+        fprintf(stderr, "Erreur: guillemet non fermé\n");
+        return -1;
+    }
+    
+    tokens[n] = NULL;  // Terminer le tableau
     return (int)n;
 }
+
 
 /** @brief Fonction d'analyse d'une ligne de commande.
  * @param cmdl Pointeur vers la structure de ligne de commande à remplir.
@@ -232,9 +271,7 @@ int parse_command_line(command_line_t* cmdl, const char* line) {
     processus_t* current_proc = add_processus(cmdl, UNCONDITIONAL);
 
     while (cmdl->tokens[token_index] != NULL) {
-        // TODO : vérifier que le nombre de processus ne dépasse pas MAX_CMDS
-        //        Que le nombre d'arguments ne dépasse pas MAX_ARGS 
-        //        ...
+        // TODO : vérifier que le nombre de processus ne dépasse pas MAX_CMDS et que le nombre d'arguments ne dépasse pas MAX_ARGS 
         char* token = cmdl->tokens[token_index];
         if (strcmp(token, ";") == 0) {
             // Fin d'une commande.
@@ -329,17 +366,59 @@ int parse_command_line(command_line_t* cmdl, const char* line) {
             continue;
          }
 
-        if (strcmp(token, "|") == 0) {
-            // Pour la gestion du pipe, vous pourrez utiliser next_processus(cmdl) pour initialiser les descripteurs
-            // des IOs standards de la structure processus_t courante et de la suivante.
-            // next_processus(cmdl) retourne un pointeur vers le processus qui sera renvoyé par add_processus(cmdl, mode)
-            // lors du prochain appel.
+        if (strcmp(token, ">&2") == 0) {
+            // Rediriger stdout vers ce que stderr utilise actuellement
+            current_proc->stdout_fd = current_proc->stderr_fd;
+            token_index++;
+            continue;
         }
 
-        if (strcmp(token, "&&") == 0 || strcmp(token, "||") == 0) {
-            // Créer un nouveau processus
-            current_proc = add_processus(cmdl, 
-                (strcmp(token, "&&") == 0) ? ON_SUCCESS : ON_FAILURE);
+        if (strcmp(token, "2>&1") == 0) {
+            // Rediriger stderr vers ce que stdout utilise actuellement
+            current_proc->stderr_fd = current_proc->stdout_fd;
+            token_index++;
+            continue;
+        }
+
+        if (strcmp(token, "|") == 0) {
+            int fds[2];
+            if (pipe(fds) < 0) {
+                perror("pipe");
+                close_fds(cmdl);
+                return -1;
+            }
+
+            // stdout du processus courant → écriture du pipe
+            current_proc->stdout_fd = fds[1];
+
+            // enregistrer les deux fd pour que les fils les ferment
+            if (add_fd(cmdl, fds[0]) != 0 || add_fd(cmdl, fds[1]) != 0) {
+                close(fds[0]);
+                close(fds[1]);
+                close_fds(cmdl);
+                return -1;
+            }
+
+            // Créer le processus suivant, enchaîné inconditionnellement
+            current_proc = add_processus(cmdl, UNCONDITIONAL);
+            if (!current_proc) {
+                close_fds(cmdl);
+                return -1;
+            }
+
+            // stdin du nouveau processus → lecture du pipe
+            current_proc->stdin_fd = fds[0];
+
+            // On recommence une nouvelle commande : reset des arguments
+            argv_index = 0;
+            token_index++;
+            continue;
+        }
+
+
+        if (strcmp(token, "&&") == 0) {
+            // Si on rencontre "&&", créer un processus suivant en mode ON_SUCCESS
+            current_proc = add_processus(cmdl, ON_SUCCESS);
             token_index++;
             argv_index = 0;  // Réinitialiser l'index des arguments
             continue;
@@ -347,10 +426,9 @@ int parse_command_line(command_line_t* cmdl, const char* line) {
 
         if (strcmp(token, "||") == 0) {
             // Si on rencontre "||", créer un processus suivant en mode ON_FAILURE
-            printf("DEBUG: Adding process for '||'\n");
             current_proc = add_processus(cmdl, ON_FAILURE);  // Crée un nouveau processus pour `||`
-            printf("DEBUG: current_proc = %p\n", (void*)current_proc);  // Log de débogage
             token_index++;
+            argv_index = 0;  // Réinitialiser l'index des arguments
             continue;
         }
 
@@ -374,16 +452,35 @@ int parse_command_line(command_line_t* cmdl, const char* line) {
             close_fds(cmdl);
             return -1;
         }
-        // argv_index == 0 => C'est la commande
+
+        // Copier le token dans argv
+        char* arg = strdup(token);
+        if (!arg) {
+            perror("strdup failed");
+            return -1;
+        }
+
+        // Si c'est la commande (premier argument)
+        // Dans la boucle de traitement des tokens
         if (argv_index == 0) {
+            // Pour la commande, on prend le token tel quel
             current_proc->path = strdup(token);
-            current_proc->argv[argv_index] = strdup(token);
-        } else {
-            current_proc->argv[argv_index] = strdup(token);
+            if (!current_proc->path) {
+                perror("strdup failed");
+                return -1;
+            }
+        }
+
+        // Pour tous les arguments, y compris la commande
+        current_proc->argv[argv_index] = strdup(token);
+        if (!current_proc->argv[argv_index]) {
+            perror("strdup failed");
+            return -1;
         }
         argv_index++;
-        current_proc->argv[argv_index] = NULL;  // Terminer le tableau argv
-        // On passe au token suivant
+        current_proc->argv[argv_index] = NULL;  // Toujours terminer par NULL  // Toujours terminer par NULL
+
+        // Passer au token suivant
         token_index++;
     }
     // On a traité tous les tokens.
