@@ -125,7 +125,6 @@ void test_builtin_cd()
 
 void test_builtin_export()
 {
-    printf("tototot");
     printf("Démarrage des tests unitaires pour builtin_export...\n");
     printf("avant malloc");
     processus_t *cmd = malloc(sizeof(processus_t));
