@@ -335,6 +335,135 @@ void test_substenv()
 	printf("\nTous les tests ont réussi !\n");
 }
 
+// Fonction utilitaire pour nettoyer une structure command_line_t entre deux tests
+// (Note: Idéalement, il faudrait une fonction free_command_line dans ton projet)
+void reset_cmdl(command_line_t *cmdl)
+{
+	// Fermeture des FDs ouverts par le parsing précédent
+	close_fds(cmdl);
+
+	// Réinitialisation basique (attention, ça ne free pas les strdup des argv/path !)
+	// Dans un vrai projet, il faudrait boucler sur commands[] pour free path et argv.
+	init_command_line(cmdl);
+}
+
+void test_parse_command_line()
+{
+	printf("Démarrage des tests unitaires pour parse_command_line...\n");
+
+	command_line_t *cmdl = malloc(sizeof(command_line_t));
+	if (!cmdl)
+		exit(1);
+
+	// --- TEST 1 : Commande simple ---
+	init_command_line(cmdl);
+	const char *line1 = strdup("ls -l -a");
+
+	assert(parse_command_line(cmdl, line1) == 0);
+	assert(cmdl->num_commands == 1); // Index 0 utilisé, donc 1 commande
+	assert(strcmp(cmdl->commands[0].path, "ls") == 0);
+	assert(strcmp(cmdl->commands[0].argv[1], "-l") == 0);
+	assert(strcmp(cmdl->commands[0].argv[2], "-a") == 0);
+	assert(cmdl->commands[0].argv[3] == NULL);
+
+	printf("[PASS] Test 1 : Commande simple\n");
+	reset_cmdl(cmdl);
+
+	// --- TEST 2 : Séquence (;) ---
+	// Note: Ta fonction separate_s gère les espaces autour de ';', on teste sans espace
+	const char *line2 = "echo un;echo deux";
+
+	assert(parse_command_line(cmdl, line2) == 0);
+	// On s'attend à avoir command[0]="echo" et command[1]="echo"
+	// Attention: ta logique de num_commands dépend de add_processus.
+	// Si add_processus incrémente num_commands, on devrait avoir 2 commandes utilisées.
+
+	assert(strcmp(cmdl->commands[0].path, "echo") == 0);
+	assert(strcmp(cmdl->commands[0].argv[1], "un") == 0);
+
+	assert(strcmp(cmdl->commands[1].path, "echo") == 0);
+	assert(strcmp(cmdl->commands[1].argv[1], "deux") == 0);
+
+	printf("[PASS] Test 2 : Séquence (;)\n");
+	reset_cmdl(cmdl);
+
+	// --- TEST 3 : Redirection sortie (>) ---
+	// On doit vérifier que le fichier est créé et que stdout_fd n'est plus 1
+	const char *line3 = "ls > test_out.txt";
+
+	assert(parse_command_line(cmdl, line3) == 0);
+	assert(cmdl->commands[0].stdout_fd > 2); // Doit être un FD ouvert
+
+	// Vérification que le fichier existe bien
+	assert(access("test_out.txt", F_OK) == 0);
+	unlink("test_out.txt"); // Nettoyage
+
+	printf("[PASS] Test 3 : Redirection (>)\n");
+	reset_cmdl(cmdl);
+
+	// --- TEST 4 : Pipe (|) ---
+	// Note: Ton parser ne sépare pas '|' automatiquement avec separate_s.
+	// Il faut donc mettre des espaces dans le test pour l'instant : "ls | grep"
+	const char *line4 = "ls | grep c";
+
+	assert(parse_command_line(cmdl, line4) == 0);
+
+	// Vérification de la plomberie
+	// Cmd 0 (ls) doit avoir stdout != 1
+	assert(cmdl->commands[0].stdout_fd != 1);
+	assert(cmdl->commands[0].stdout_fd > 2);
+
+	// Cmd 1 (grep) doit avoir stdin != 0
+	assert(cmdl->commands[1].stdin_fd != 0);
+	assert(cmdl->commands[1].stdin_fd > 2);
+
+	printf("[PASS] Test 4 : Pipe (|)\n");
+	reset_cmdl(cmdl);
+
+	// --- TEST 5 : Substitution de variables ($) ---
+	setenv("TEST_VAR", "mon_dossier", 1);
+	const char *line5 = "cd $TEST_VAR";
+
+	assert(parse_command_line(cmdl, line5) == 0);
+	assert(strcmp(cmdl->commands[0].argv[1], "mon_dossier") == 0);
+
+	printf("[PASS] Test 5 : Substitution ($)\n");
+	reset_cmdl(cmdl);
+
+	// --- TEST 6 : Erreur de syntaxe (Redirection sans fichier) ---
+	// Doit retourner -1 et ne pas crasher
+	const char *line6 = "ls >";
+
+	// On redirige stderr pour éviter de polluer l'affichage du test
+	int saved_stderr = dup(STDERR_FILENO);
+	int null_fd = open("/dev/null", O_WRONLY);
+	dup2(null_fd, STDERR_FILENO);
+
+	assert(parse_command_line(cmdl, line6) == -1);
+
+	// Restauration stderr
+	dup2(saved_stderr, STDERR_FILENO);
+	close(null_fd);
+	close(saved_stderr);
+
+	printf("[PASS] Test 6 : Erreur de syntaxe (> sans fichier)\n");
+	reset_cmdl(cmdl);
+
+	// --- TEST 7 : Background (&) ---
+	const char *line7 = "sleep 10 &";
+
+	assert(parse_command_line(cmdl, line7) == 0);
+	assert(cmdl->commands[0].is_background == 1);
+
+	printf("[PASS] Test 7 : Background (&)\n");
+
+	// Nettoyage final
+	reset_cmdl(cmdl);
+	free(cmdl);
+
+	printf("Tous les tests pour parse_command_line ont réussi !\n");
+}
+
 int main()
 {
 	print_test_result("test_trim", test_trim());
@@ -343,6 +472,7 @@ int main()
 	test_strcut();
 	test_separate_s();
 	test_substenv();
+	test_parse_command_line();
 
 	return 0;
 }

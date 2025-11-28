@@ -35,11 +35,14 @@ test_parser: ${OBJ_DIR}/parser.o ${OBJ_DIR}/processus.o ${OBJ_DIR}/builtins.o sr
 test_builtins: ${OBJ_DIR}/parser.o ${OBJ_DIR}/processus.o ${OBJ_DIR}/builtins.o src/test_builtins.c
 	${CC} $^ -o $@ ${LDFLAGS}
 
+test_processus: ${OBJ_DIR}/parser.o ${OBJ_DIR}/processus.o ${OBJ_DIR}/builtins.o src/test_processus.c
+	${CC} $^ -o $@ ${LDFLAGS}
+
 clean:
 	rm -f ${OBJ_DIR}/*.o
 
 deepclean: clean
-	rm -f ${EXEC}
+	rm -f ${EXEC} test_*
 	rm -rf ${DOC_DIR}/html ${DOC_DIR}/latex
 
 doc: ${DOXYGEN_CONFIG} ${HEADERS} ${SRCS}

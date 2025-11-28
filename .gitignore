@@ -1,3 +1,5 @@
 *.o
 minishell
-test_*
+test_parser
+test_builtins
+test_processus

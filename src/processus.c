@@ -1,12 +1,12 @@
 /** @file processus.c
  * @brief Implementation of process management functions
- * @author Nom1
- * @author Nom2
+ * @author Sofiane FETTAH
+ * @author Matthieu COMME
  * @date 2025-26
  * @details Implémentation des fonctions de gestion des processus.
  */
 #ifndef MAX_OPENED
-#define MAX_OPENED 64
+#define MAX_OPENED MAX_CMDS * 3 + 1
 #endif
 
 #include <string.h>
@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/time.h>
 
 #include "processus.h"
 #include "builtins.h"
@@ -38,11 +39,17 @@
  * - *end_time*: {0}
  * - *cf*: NULL
  */
- int init_processus(processus_t* proc) {
+int init_processus(processus_t *proc)
+{
+    if (!proc)
+        return -1;
 
-    if (!proc) return -1;
     memset(proc, 0, sizeof(*proc));
-    proc->stdin_fd = 0; proc->stdout_fd = 1; proc->stderr_fd = 2;
+
+    proc->stdin_fd = 0;
+    proc->stdout_fd = 1;
+    proc->stderr_fd = 2;
+
     return 0;
 }
 
@@ -57,97 +64,139 @@
  *    Les temps de démarrage et d'arrêt sont enregistrés dans *start_time* et *end_time* respectivement. *end_time* est mis à jour uniquement si *is_background* est désactivé.
  *    Les descripteurs de fichiers ouverts sont gérés dans *cf->cmdl->opened_descriptors* : le processus "fils" ferme tous les descripteurs listés dans ce tableau avant d'exécuter la commande.
  */
-        int launch_processus(processus_t* proc) {
-            if (!proc || !proc->argv[0]) {
-                fprintf(stderr, "Erreur: commande invalide\n");
-                return -1;
-            }
 
-        if (is_builtin(proc)) {
+void get_current_time_legacy(struct timespec *ts)
+{
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) == 0)
+    {
+        ts->tv_sec = tv.tv_sec;
+        // Conversion microsecondes (us) -> nanosecondes (ns)
+        ts->tv_nsec = tv.tv_usec * 1000;
+    }
+}
+int launch_processus(processus_t *proc)
+{
+    if (!proc || !proc->argv[0])
+    {
+        fprintf(stderr, "Erreur: commande invalide\n");
+        return -1;
+    }
+
+    // 1. Enregistrement du temps de début
+    get_current_time_legacy(&proc->start_time);
+
+    /* ========= 1) COMMANDES INTERNES (BUILTINS) ========= */
+    if (is_builtin(proc))
+    {
+        // Note: Pour un vrai shell, il faudrait gérer les redirections ici aussi
+        // (dup2 avant l'appel, restauration après).
         int rc = exec_builtin(proc);
-        proc->status = (rc == 0) ? 0 : 1;
+        proc->status = rc; // On stocke directement le retour (-1 ou 0 généralement)
+
+        // Mise à jour du temps de fin (immédiat pour un builtin)
+        get_current_time_legacy(&proc->end_time);
         return 0;
     }
 
-            /* ========= 2) COMMANDES EXTERNES ========= */
-            pid_t pid = fork();
-            if (pid < 0) {
-                perror("fork failed");
-                proc->status = 1;
-                return -1;
-            }
+    /* ========= 2) COMMANDES EXTERNES ========= */
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        perror("fork failed");
+        proc->status = 1;
+        return -1;
+    }
 
-            if (pid == 0) {
-                /* ----- Processus fils ----- */
+    if (pid == 0)
+    {
+        /* ----- Processus fils ----- */
 
-                // Appliquer les redirections
-                if (proc->stdin_fd != 0) {
-                    dup2(proc->stdin_fd, STDIN_FILENO);
+        // Appliquer les redirections
+        if (proc->stdin_fd != 0)
+            dup2(proc->stdin_fd, STDIN_FILENO);
+        if (proc->stdout_fd != 1)
+            dup2(proc->stdout_fd, STDOUT_FILENO);
+        if (proc->stderr_fd != 2)
+            dup2(proc->stderr_fd, STDERR_FILENO);
+
+        // Fermer les descripteurs recensés
+        if (proc->cf && proc->cf->cmdl)
+        {
+            // Correction : Utilisation de la taille réelle du tableau
+            int max_fds = MAX_CMDS * 3 + 1;
+            for (int i = 0; i < max_fds; ++i)
+            {
+                int fd = proc->cf->cmdl->opened_descriptors[i];
+                if (fd >= 3)
+                {
+                    close(fd);
                 }
-                if (proc->stdout_fd != 1) {
-                    dup2(proc->stdout_fd, STDOUT_FILENO);
-                }
-                if (proc->stderr_fd != 2) {
-                    dup2(proc->stderr_fd, STDERR_FILENO);
-                }
-
-                // Fermer les descripteurs recensés dans opened_descriptors
-                if (proc->cf && proc->cf->cmdl) {
-                    for (int i = 0; i < MAX_OPENED; ++i) {
-                        int fd = proc->cf->cmdl->opened_descriptors[i];
-                        if (fd >= 3) {   // on ne ferme pas 0,1,2
-                            close(fd);
-                        }
-                    }
-                }
-
-                // Choisir le chemin à exécuter : path si défini, sinon argv[0]
-                const char* path = proc->path ? proc->path : proc->argv[0];
-                execvp(path, proc->argv);
-                perror("execvp failed");
-                _exit(127);
             }
-
-            /* ----- Processus père ----- */
-            proc->pid = pid;
-
-            // Très important pour les pipes et redirections :
-            // le père n'a plus besoin de ses copies des FDs de redirection.
-            if (proc->stdin_fd > 2)  close(proc->stdin_fd);
-            if (proc->stdout_fd > 2) close(proc->stdout_fd);
-            if (proc->stderr_fd > 2) close(proc->stderr_fd);
-
-            // (optionnel mais propre) : revenir aux valeurs par défaut dans la struct
-            proc->stdin_fd  = 0;
-            proc->stdout_fd = 1;
-            proc->stderr_fd = 2;
-
-            // Si exécution en arrière-plan (&), on ne bloque pas
-            if (proc->is_background) {
-                proc->status = 0;   // on considère que le lancement est OK
-                return 0;
-            }
-
-            // Avant-plan : on attend la fin du processus
-            int status = 0;
-            if (waitpid(pid, &status, 0) < 0) {
-                perror("waitpid");
-                proc->status = 1;
-                return -1;
-            }
-
-            if (WIFEXITED(status)) {
-                proc->status = WEXITSTATUS(status);
-            } else if (WIFSIGNALED(status)) {
-                proc->status = 128 + WTERMSIG(status);
-            } else {
-                proc->status = 1;
-            }
-
-            return 0;
         }
 
+        const char *path = proc->path ? proc->path : proc->argv[0];
 
+        // Exécution
+        execvp(path, proc->argv);
+
+        // Si on arrive ici, c'est une erreur
+        perror("execvp failed");
+        _exit(127); // 127 est le standard pour "command not found"
+    }
+
+    /* ----- Processus père ----- */
+    proc->pid = pid;
+
+    // Fermeture des descripteurs côté père (ceux utilisés pour la redirection)
+    if (proc->stdin_fd > 2)
+        close(proc->stdin_fd);
+    if (proc->stdout_fd > 2)
+        close(proc->stdout_fd);
+    if (proc->stderr_fd > 2)
+        close(proc->stderr_fd);
+
+    // Reset des valeurs par défaut pour éviter les accidents
+    proc->stdin_fd = 0;
+    proc->stdout_fd = 1;
+    proc->stderr_fd = 2;
+
+    // Si exécution en arrière-plan
+    if (proc->is_background)
+    {
+        proc->status = 0;
+        // On ne met PAS à jour end_time car le processus tourne encore
+        return 0;
+    }
+
+    // Avant-plan : Attente de la fin
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0)
+    {
+        perror("waitpid");
+        proc->status = 1;
+        return -1;
+    }
+
+    // Analyse du statut de retour
+    if (WIFEXITED(status))
+    {
+        proc->status = WEXITSTATUS(status);
+    }
+    else if (WIFSIGNALED(status))
+    {
+        proc->status = 128 + WTERMSIG(status);
+    }
+    else
+    {
+        proc->status = 1;
+    }
+
+    // 2. Enregistrement du temps de fin (Si pas background)
+    get_current_time_legacy(&proc->end_time);
+
+    return 0;
+}
 
 /** @brief Fonction d'initialisation d'une structure de contrôle de flux.
  * @param cf Pointeur vers la structure de contrôle de flux à initialiser.
@@ -159,10 +208,13 @@
  * - *on_failure_next*: NULL
  * - *cmdl*: NULL
  */
- int init_control_flow(control_flow_t* cf) {
+int init_control_flow(control_flow_t *cf)
+{
     // Ici, un appel à bzero permettrais sûrement de faire le travail en une seule ligne
-    if (!cf) return -1;
-    memset(cf, 0, sizeof(*cf));
+    if (!cf)
+        return -1;
+
+    bzero(cf, sizeof(*cf));
     return 0;
 }
 
@@ -178,24 +230,27 @@
  * - Si *mode* est ON_FAILURE, *proc* est ajouté à la liste des processus à exécuter uniquement si le processus courant s'est terminé avec un échec (code de retour non nul).
  */
 
-processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
+processus_t *add_processus(command_line_t *cmdl, control_flow_mode_t mode)
+{
     if (cmdl == NULL || cmdl->num_commands >= MAX_CMDS)
         return NULL;
 
     // Get the current process and control flow
-    processus_t* proc = &cmdl->commands[cmdl->num_commands];
-    control_flow_t* cf = &cmdl->flow[cmdl->num_commands];
+    processus_t *proc = &cmdl->commands[cmdl->num_commands];
+    control_flow_t *cf = &cmdl->flow[cmdl->num_commands];
 
     // Initialize the process and control flow
     init_processus(proc);
     init_control_flow(cf);
 
     cf->proc = proc;
+    proc->cf = cf;
     cf->cmdl = cmdl;
 
     // Link to the previous control flow if it exists
-    if (cmdl->num_commands > 0) {
-        control_flow_t* prev_cf = &cmdl->flow[cmdl->num_commands - 1];
+    if (cmdl->num_commands > 0)
+    {
+        control_flow_t *prev_cf = &cmdl->flow[cmdl->num_commands - 1];
         if (mode == UNCONDITIONAL)
             prev_cf->unconditionnal_next = cf;
         else if (mode == ON_SUCCESS)
@@ -207,9 +262,6 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
     return proc;
 }
 
-
-
-
 /** @brief Fonction de récupération du prochain processus à exécuter selon le contrôle de flux.
  * @param cmdl Pointeur vers la structure de ligne de commande.
  * @return processus_t* Pointeur vers le prochain processus à exécuter, ou NULL si le nombre maximum est atteint.
@@ -217,10 +269,13 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
  *  Si le nombre maximum de commandes est atteint (MAX_CMDS), la fonction retourne NULL.
  *  Cela permet notamment d'initialiser les descripteurs des IOs standards qui dépendent du processus en court de traitement (dans le cas des pipes par exemple).
  */
- processus_t* next_processus(command_line_t* cmdl) {
+processus_t *next_processus(command_line_t *cmdl)
+{
 
-    if (!cmdl) return NULL;
-    if (cmdl->num_commands >= MAX_CMDS) return NULL;
+    if (!cmdl)
+        return NULL;
+    if (cmdl->num_commands >= MAX_CMDS)
+        return NULL;
     return &cmdl->commands[cmdl->num_commands];
 }
 
@@ -231,11 +286,17 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
  * @details Cette fonction ajoute le descripteur de fichier *fd* au tableau *opened_descriptors* de la structure *cf*.
  *    Si le tableau est plein ou si *fd* est invalide (négatif), la fonction retourne -1
  */
- int add_fd(command_line_t* cmdl, int fd) {
-
-    if (!cmdl || fd < 0) return -1;
-    for (int i = 0; i < MAX_OPENED; ++i) {
-        if (cmdl->opened_descriptors[i] == -1) { cmdl->opened_descriptors[i] = fd; return 0; }
+int add_fd(command_line_t *cmdl, int fd)
+{
+    if (!cmdl || fd < 0)
+        return -1;
+    for (int i = 0; i < MAX_OPENED; ++i)
+    {
+        if (cmdl->opened_descriptors[i] == -1)
+        {
+            cmdl->opened_descriptors[i] = fd;
+            return 0;
+        }
     }
     return -1;
 }
@@ -246,13 +307,22 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
  * @details Cette fonction ferme tous les descripteurs de fichiers listés dans le tableau *opened_descriptors* de la structure *cf*.
  *    Après fermeture, les entrées du tableau sont remises à -1.
  */
- int close_fds(command_line_t* cmdl) {
+int close_fds(command_line_t *cmdl)
+{
+    if (!cmdl)
+        return -1;
 
-    if (!cmdl) return -1;
-    for (int i = 0; i < MAX_OPENED; ++i) {
-        if (cmdl->opened_descriptors[i] >= 0) { close(cmdl->opened_descriptors[i]); cmdl->opened_descriptors[i] = -1; }
+    int ret = 0;
+    for (int i = 0; i < MAX_OPENED; ++i)
+    {
+        if (cmdl->opened_descriptors[i] >= 0)
+        {
+            if (close(cmdl->opened_descriptors[i]) == -1)
+                ret = -1;
+            cmdl->opened_descriptors[i] = -1;
+        }
     }
-    return 0;
+    return ret;
 }
 
 /** @brief Fonction d'initialisation d'une structure de ligne de commande.
@@ -266,12 +336,20 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
  * - *num_commands*: 0
  * - *opened_descriptors*: {-1}
  */
- int init_command_line(command_line_t* cmdl) {
-    if (!cmdl) return -1;
+int init_command_line(command_line_t *cmdl)
+{
+    if (!cmdl)
+        return -1;
     memset(cmdl->command_line, 0, sizeof cmdl->command_line);
-    for (size_t i = 0; i < (MAX_CMD_LINE/2 + 1); ++i) cmdl->tokens[i] = NULL;
-    for (int i = 0; i < MAX_CMDS; ++i) { init_processus(&cmdl->commands[i]); init_control_flow(&cmdl->flow[i]); }
-    for (int i = 0; i < MAX_OPENED; ++i) cmdl->opened_descriptors[i] = -1;
+    for (size_t i = 0; i < (MAX_CMD_LINE / 2 + 1); ++i)
+        cmdl->tokens[i] = NULL;
+    for (int i = 0; i < MAX_CMDS; ++i)
+    {
+        init_processus(&cmdl->commands[i]);
+        init_control_flow(&cmdl->flow[i]);
+    }
+    for (int i = 0; i < MAX_OPENED; ++i)
+        cmdl->opened_descriptors[i] = -1;
     cmdl->num_commands = 0;
     return 0;
 }
@@ -284,34 +362,44 @@ processus_t* add_processus(command_line_t* cmdl, control_flow_mode_t mode) {
  *    La fonction retourne 0 si tous les processus à lancer en fonction du contrôle de flux ont pu être lancés sans erreur.
  */
 
+int launch_command_line(command_line_t *cmdl)
+{
+    if (!cmdl || cmdl->num_commands == 0)
+        return -1;
 
-int launch_command_line(command_line_t* cmdl) {
-    if (!cmdl || cmdl->num_commands == 0) return -1;
+    control_flow_t *cur = &cmdl->flow[0]; // Début du flux de commandes
 
-    control_flow_t* cur = &cmdl->flow[0];  // Début du flux de commandes
-
-    while (cur) {
-        processus_t* p = cur->proc;
+    while (cur)
+    {
+        processus_t *p = cur->proc;
 
         // Lancer le processus courant
-        launch_processus(p);   // Lance le processus
+        launch_processus(p);    // Lance le processus
         int status = p->status; // Récupère le statut du processus
 
         // Inversion éventuelle (si le processus a échoué, inverser le statut)
-        if (p->invert) {
-            status = (status == 0) ? 1 : 0;  // Inverse le statut (0 -> 1, 1 -> 0)
+        if (p->invert)
+        {
+            status = (status == 0) ? 1 : 0; // Inverse le statut (0 -> 1, 1 -> 0)
         }
 
         // Choisir le prochain maillon en fonction du statut
-        if (cur->unconditionnal_next) {
-            cur = cur->unconditionnal_next;  // Passage au prochain processus (inconditionnel)
-        } else if (status == 0 && cur->on_success_next) {
+        if (cur->unconditionnal_next)
+        {
+            cur = cur->unconditionnal_next; // Passage au prochain processus (inconditionnel)
+        }
+        else if (status == 0 && cur->on_success_next)
+        {
             // Si succès (status == 0), passer à la commande suivante en cas de succès
             cur = cur->on_success_next;
-        } else if (status != 0 && cur->on_failure_next) {
+        }
+        else if (status != 0 && cur->on_failure_next)
+        {
             // Si échec (status != 0), passer à la commande suivante en cas d'échec
             cur = cur->on_failure_next;
-        } else {
+        }
+        else
+        {
             // Si aucun maillon suivant, arrêter la boucle
             cur = NULL;
         }
