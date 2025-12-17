@@ -22,14 +22,23 @@
  */
 int trim(char *str)
 {
-    char *start = str;
-    while (*start == ' ')
-        ++start;
-    memmove(str, start, strlen(start) + 1);
+    if (!str) return -1;
 
-    char *end = str + strlen(str) - 1;
-    while (*end == ' ')
-    {
+    // skip début (espaces, tabs, CR, LF)
+    char *start = str;
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n')
+        ++start;
+
+    if (start != str)
+        memmove(str, start, strlen(start) + 1);
+
+    // si chaîne vide après trim début
+    size_t len = strlen(str);
+    if (len == 0) return 0;
+
+    // trim fin (espaces, tabs, CR, LF)
+    char *end = str + len - 1;
+    while (end >= str && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) {
         *end = '\0';
         --end;
     }
@@ -39,12 +48,54 @@ int trim(char *str)
 /** @brief Fonction de nettoyage d'une chaîne de caractères en supprimant les doublons d'espaces.
  * @param str Chaîne de caractères à nettoyer.
  * @return int 0 en cas de succès, -1 en cas d'erreur.
+ * @details Cette fonction supprime les doubles espaces, mais respecte les guillemets.
+ *    (Sinon, les espaces à l'intérieur des quotes seraient modifiés et les arguments "quotés" seraient cassés.)
  */
 int clean(char *str)
 {
-    int len = strlen(str) + 1;
-    while (replace(str, "  ", " ", len) == 0)
-        ;
+    if (!str) return -1;
+    
+    char *r = str;  // lecture
+    char *w = str;  // écriture
+    int in_space = 0;
+    int in_quotes = 0;
+    char quote_char = 0;
+    
+    while (*r) {
+        // Gestion des guillemets
+        if ((*r == '"' || *r == '\'') && (r == str || *(r-1) != '\\')) {
+            if (!in_quotes) {
+                in_quotes = 1;
+                quote_char = *r;
+            } else if (*r == quote_char) {
+                in_quotes = 0;
+                quote_char = 0;
+            }
+            *w++ = *r++;
+            in_space = 0;
+            continue;
+        }
+        
+        // À l'intérieur des guillemets, on copie tout
+        if (in_quotes) {
+            *w++ = *r++;
+            continue;
+        }
+        
+        // Hors guillemets, on supprime les doubles espaces
+        if (*r == ' ' || *r == '\t') {
+            if (!in_space) {
+                *w++ = ' ';
+                in_space = 1;
+            }
+            r++;
+        } else {
+            *w++ = *r++;
+            in_space = 0;
+        }
+    }
+    
+    *w = '\0';
     return 0;
 }
 
@@ -272,29 +323,95 @@ int substenv(char *str, size_t max)
  *    Les tokens extraits sont stockés dans le tableau *tokens*.
  *    Si le nombre de tokens dépasse la taille maximale *max*, la fonction retourne -1.
  */
-int strcut(char *str, char sep, char **tokens, size_t max)
-{
-    if (max == 0)
-        return -1;
+int strcut(char* str, char sep, char** tokens, size_t max) {
+    (void)sep;
+    if (!str || !tokens || max == 0) return -1;
 
-    const char separator[] = {sep, '\0'};
-    unsigned int nb_tokens = 0;
+    size_t n = 0;
+    char* p = str;
 
-    char *token = strtok(str, separator);
-    while (token != NULL)
-    {
-        if (nb_tokens >= max - 1) // dépassement de taille
-        {
-            tokens[max - 1] = NULL;
+    // Macro helper pour vérifier les whitespaces
+    #define IS_SPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\r' || (c) == '\n')
+
+    // Découpe "in-place" : chaque token pointe dans la chaîne d'origine.
+    // Bug rencontré : on terminait un token en écrivant '\0' sur le séparateur (espace/tab/\n)
+    // sans avancer le pointeur de lecture. Résultat : la chaîne semblait finie après le 1er token
+    // (ex: seule la commande "printf" était lue, et ses arguments disparaissaient).
+
+    while (*p) {
+        while (IS_SPACE(*p)) p++;
+        if (!*p) break;
+
+        if (n >= max - 1) {
+            fprintf(stderr, "Erreur: trop de tokens (max=%zu)\n", max);
             return -1;
         }
-        tokens[nb_tokens] = token;
-        nb_tokens++;
-        token = strtok(NULL, separator);
+
+        char* out = p;
+        tokens[n] = out;
+        n++;
+
+        int in_quotes = 0;
+        char quote_char = 0;
+
+        while (*p) {
+            if (!in_quotes && IS_SPACE(*p)) break;
+
+            if (*p == '\\' && p[1] != '\0' && quote_char != '\'') {
+                // Hors quotes: le backslash échappe toujours le caractère suivant.
+                if (!in_quotes) {
+                    p++;
+                    *out++ = *p++;
+                    continue;
+                }
+
+                // Dans doubles quotes: échappement seulement pour $ ` " \\ et newline.
+                if (quote_char == '"') {
+                    char next = p[1];
+                    if (next == '$' || next == '`' || next == '"' || next == '\\' || next == '\n') {
+                        p++;
+                        *out++ = *p++;
+                        continue;
+                    }
+                    // Sinon, le backslash est littéral (ex: \n doit rester "\\n").
+                }
+            }
+
+            if (*p == '"' || *p == '\'') {
+                if (!in_quotes) {
+                    in_quotes = 1;
+                    quote_char = *p++;
+                    continue;
+                } else if (*p == quote_char) {
+                    in_quotes = 0;
+                    quote_char = 0;
+                    p++;
+                    continue;
+                }
+            }
+
+            *out++ = *p++;
+        }
+
+        if (in_quotes) {
+            fprintf(stderr, "Erreur: guillemet '%c' non fermé\n", quote_char);
+            return -1;
+        }
+
+        // Important: on découpe "in-place".
+        // Bug rencontré: si on remplaçait le séparateur (espace/tab/\n) par '\0' sans avancer
+        // le pointeur de lecture, la chaîne semblait terminée juste après le 1er token.
+        char stopped = *p;
+        *out = '\0';
+        if (stopped != '\0') {
+            p++;
+        }
+        while (IS_SPACE(*p)) p++;
     }
 
-    tokens[nb_tokens] = NULL;
-    return nb_tokens;
+    #undef IS_SPACE
+    tokens[n] = NULL;
+    return (int)n;
 }
 
 /** @brief Fonction d'analyse d'une ligne de commande.
@@ -310,14 +427,9 @@ int strcut(char *str, char sep, char **tokens, size_t max)
  */
 int parse_command_line(command_line_t *cmdl, const char *line)
 {
-    // !!! Attention code modifié par rapport à la première version
-    // Seules ces deux lignes sont modifiées (commentées)
     // Copie de la ligne de commande dans la structure
-    // strncpy(cmdl->command_line, line, MAX_CMD_LINE - 1);
-    // cmdl->command_line[MAX_CMD_LINE - 1] = '\0';
-    // !!!
-
-    (void)line; // pour éviter le warning unused parameter
+    strncpy(cmdl->command_line, line, MAX_CMD_LINE - 1);
+    cmdl->command_line[MAX_CMD_LINE - 1] = '\0';
 
     // Suppression des espaces inutiles au début et à la fin
     if (trim(cmdl->command_line) != 0)
@@ -334,11 +446,13 @@ int parse_command_line(command_line_t *cmdl, const char *line)
     {
         return -1;
     }
+
     // Traitement des variables d'environnement
     if (substenv(cmdl->command_line, MAX_CMD_LINE) != 0)
     {
         return -1;
     }
+    
     // Découpage de la ligne en tokens
     int num_tokens = strcut(cmdl->command_line, ' ', cmdl->tokens, MAX_CMD_LINE / 2 + 1);
     if (num_tokens < 0)
@@ -602,7 +716,26 @@ int parse_command_line(command_line_t *cmdl, const char *line)
         {
             // Mettre le flag is_background du processus courant à 1
             current_proc->is_background = 1;
+
+            // "&" termine la commande courante (comme ";").
+            // Bug rencontré: sans créer un nouveau processus, les tokens suivants (ex: "echo")
+            // étaient ajoutés dans argv du même processus, donc passés à "sleep".
             token_index++;
+
+            // Si '&' est en fin de ligne, rien d'autre à parser.
+            if (cmdl->tokens[token_index] == NULL)
+            {
+                break;
+            }
+
+            // Sinon, on démarre une nouvelle commande inconditionnelle.
+            current_proc = add_processus(cmdl, UNCONDITIONAL);
+            if (!current_proc)
+            {
+                close_fds(cmdl);
+                return -1;
+            }
+            argv_index = 0;
             continue;
         }
 
