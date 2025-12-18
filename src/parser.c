@@ -324,14 +324,10 @@ int substenv(char *str, size_t max)
  *    Si le nombre de tokens dépasse la taille maximale *max*, la fonction retourne -1.
  */
 int strcut(char* str, char sep, char** tokens, size_t max) {
-    (void)sep;
     if (!str || !tokens || max == 0) return -1;
 
     size_t n = 0;
     char* p = str;
-
-    // Macro helper pour vérifier les whitespaces
-    #define IS_SPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\r' || (c) == '\n')
 
     // Découpe "in-place" : chaque token pointe dans la chaîne d'origine.
     // Bug rencontré : on terminait un token en écrivant '\0' sur le séparateur (espace/tab/\n)
@@ -339,11 +335,13 @@ int strcut(char* str, char sep, char** tokens, size_t max) {
     // (ex: seule la commande "printf" était lue, et ses arguments disparaissaient).
 
     while (*p) {
-        while (IS_SPACE(*p)) p++;
+        // Sauter les séparateurs (soit le caractère sep, soit les espaces)
+        while (*p == sep) p++;
         if (!*p) break;
 
         if (n >= max - 1) {
             fprintf(stderr, "Erreur: trop de tokens (max=%zu)\n", max);
+            tokens[n] = NULL;  // Assurer la terminaison NULL même en erreur
             return -1;
         }
 
@@ -355,7 +353,7 @@ int strcut(char* str, char sep, char** tokens, size_t max) {
         char quote_char = 0;
 
         while (*p) {
-            if (!in_quotes && IS_SPACE(*p)) break;
+            if (!in_quotes && *p == sep) break;
 
             if (*p == '\\' && p[1] != '\0' && quote_char != '\'') {
                 // Hors quotes: le backslash échappe toujours le caractère suivant.
@@ -406,10 +404,9 @@ int strcut(char* str, char sep, char** tokens, size_t max) {
         if (stopped != '\0') {
             p++;
         }
-        while (IS_SPACE(*p)) p++;
+        while (*p == sep) p++;
     }
 
-    #undef IS_SPACE
     tokens[n] = NULL;
     return (int)n;
 }
