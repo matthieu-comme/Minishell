@@ -76,13 +76,13 @@ int clean(char *str)
             continue;
         }
         
-        // À l'intérieur des guillemets, on copie tout
+        // à l'intérieur, on copie tout
         if (in_quotes) {
             *w++ = *r++;
             continue;
         }
         
-        // Hors guillemets, on supprime les doubles espaces
+        // à l'extérieur, on clean
         if (*r == ' ' || *r == '\t') {
             if (!in_space) {
                 *w++ = ' ';
@@ -371,7 +371,6 @@ int strcut(char* str, char sep, char** tokens, size_t max) {
                         *out++ = *p++;
                         continue;
                     }
-                    // Sinon, le backslash est littéral (ex: \n doit rester "\\n").
                 }
             }
 
@@ -396,9 +395,6 @@ int strcut(char* str, char sep, char** tokens, size_t max) {
             return -1;
         }
 
-        // Important: on découpe "in-place".
-        // Bug rencontré: si on remplaçait le séparateur (espace/tab/\n) par '\0' sans avancer
-        // le pointeur de lecture, la chaîne semblait terminée juste après le 1er token.
         char stopped = *p;
         *out = '\0';
         if (stopped != '\0') {
@@ -470,13 +466,13 @@ int parse_command_line(command_line_t *cmdl, const char *line)
         char *token = cmdl->tokens[token_index];
         if (strcmp(token, ";") == 0)
         {
-            // Fin d'une commande.
-            // Si le ';' est le dernier token, on peut arrêter le parsing
+            // fin d'une commande.
+            // si le ';' est le dernier token, on peut arrêter le parsing
             if (cmdl->tokens[token_index + 1] == NULL)
             {
                 break;
             }
-            // Sinon, on passe au processus suivant
+            // sinon, on passe au processus suivant
             current_proc = add_processus(cmdl, UNCONDITIONAL);
             // On réinitialise l'index des arguments
             argv_index = 0;
