@@ -129,7 +129,7 @@ int builtin_export(processus_t *cmd)
         char *var_name = malloc(var_len + 1);
         if (!var_name)
         {
-            perror("malloc");
+            dprintf(cmd->stderr_fd, "export: erreur malloc\n");
             return -1;
         }
 
