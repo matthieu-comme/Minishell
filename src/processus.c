@@ -71,7 +71,7 @@ void get_current_time_legacy(struct timespec *ts)
     if (gettimeofday(&tv, NULL) == 0)
     {
         ts->tv_sec = tv.tv_sec;
-        // Conversion microsecondes (us) -> nanosecondes (ns)
+        //  conversion micro -> nano 
         ts->tv_nsec = tv.tv_usec * 1000;
     }
 }
@@ -83,23 +83,21 @@ int launch_processus(processus_t *proc)
         return -1;
     }
 
-    // 1. Enregistrement du temps de début
+    // temps de début
     get_current_time_legacy(&proc->start_time);
 
-    /* ========= 1) COMMANDES INTERNES (BUILTINS) ========= */
+    // BUILTINS
     if (is_builtin(proc))
     {
-        // Note: Pour un vrai shell, il faudrait gérer les redirections ici aussi
-        // (dup2 avant l'appel, restauration après).
         int rc = exec_builtin(proc);
-        proc->status = rc; // On stocke directement le retour (-1 ou 0 généralement)
+        proc->status = rc; 
 
-        // Mise à jour du temps de fin (immédiat pour un builtin)
+        // temps de fin
         get_current_time_legacy(&proc->end_time);
         return 0;
     }
 
-    /* ========= 2) COMMANDES EXTERNES ========= */
+    // COMMANDES EXTERNES 
     pid_t pid = fork();
     if (pid < 0)
     {
@@ -108,11 +106,9 @@ int launch_processus(processus_t *proc)
         return -1;
     }
 
-    if (pid == 0)
-    {
-        /* ----- Processus fils ----- */
-
-        // Appliquer les redirections
+    if (pid == 0) // fils
+    {     
+        // appliquer les redirections
         if (proc->stdin_fd != 0)
             dup2(proc->stdin_fd, STDIN_FILENO);
         if (proc->stdout_fd != 1)
@@ -120,10 +116,9 @@ int launch_processus(processus_t *proc)
         if (proc->stderr_fd != 2)
             dup2(proc->stderr_fd, STDERR_FILENO);
 
-        // Fermer les descripteurs recensés
+        // fermer les descripteurs ouverts
         if (proc->cf && proc->cf->cmdl)
         {
-            // Correction : Utilisation de la taille réelle du tableau
             int max_fds = MAX_CMDS * 3 + 1;
             for (int i = 0; i < max_fds; ++i)
             {
@@ -137,18 +132,17 @@ int launch_processus(processus_t *proc)
 
         const char *path = proc->path ? proc->path : proc->argv[0];
 
-        // Exécution
         execvp(path, proc->argv);
 
-        // Si on arrive ici, c'est une erreur
+        // si on arrive ici c'est une erreur
         perror("execvp failed");
         _exit(127); // 127 est le standard pour "command not found"
     }
 
-    /* ----- Processus père ----- */
+    // père
     proc->pid = pid;
 
-    // Fermeture des descripteurs côté père (ceux utilisés pour la redirection)
+    // fermeture des descripteurs côté père (ceux utilisés pour la redirection)
     if (proc->stdin_fd > 2)
         close(proc->stdin_fd);
     if (proc->stdout_fd > 2)
@@ -156,20 +150,19 @@ int launch_processus(processus_t *proc)
     if (proc->stderr_fd > 2)
         close(proc->stderr_fd);
 
-    // Reset des valeurs par défaut pour éviter les accidents
+    // reset des valeurs par défaut pour éviter les accidents
     proc->stdin_fd = 0;
     proc->stdout_fd = 1;
     proc->stderr_fd = 2;
 
-    // Si exécution en arrière-plan
+    // si exec en arrière-plan
     if (proc->is_background)
     {
         proc->status = 0;
-        // On ne met PAS à jour end_time car le processus tourne encore
         return 0;
     }
 
-    // Avant-plan : Attente de la fin
+    // avant-plan
     int status = 0;
     if (waitpid(pid, &status, 0) < 0)
     {
@@ -178,7 +171,7 @@ int launch_processus(processus_t *proc)
         return -1;
     }
 
-    // Analyse du statut de retour
+    // analyse du statut de retour
     if (WIFEXITED(status))
     {
         proc->status = WEXITSTATUS(status);
@@ -192,7 +185,7 @@ int launch_processus(processus_t *proc)
         proc->status = 1;
     }
 
-    // 2. Enregistrement du temps de fin (Si pas background)
+    // temps de fin si pas background
     get_current_time_legacy(&proc->end_time);
 
     return 0;
@@ -235,11 +228,10 @@ processus_t *add_processus(command_line_t *cmdl, control_flow_mode_t mode)
     if (cmdl == NULL || cmdl->num_commands >= MAX_CMDS)
         return NULL;
 
-    // Get the current process and control flow
     processus_t *proc = &cmdl->commands[cmdl->num_commands];
     control_flow_t *cf = &cmdl->flow[cmdl->num_commands];
 
-    // Initialize the process and control flow
+    // initialisation
     init_processus(proc);
     init_control_flow(cf);
 
@@ -247,7 +239,7 @@ processus_t *add_processus(command_line_t *cmdl, control_flow_mode_t mode)
     proc->cf = cf;
     cf->cmdl = cmdl;
 
-    // Link to the previous control flow if it exists
+    // lie au précedent cf s'il existe
     if (cmdl->num_commands > 0)
     {
         control_flow_t *prev_cf = &cmdl->flow[cmdl->num_commands - 1];
@@ -312,6 +304,7 @@ int close_fds(command_line_t *cmdl)
     if (!cmdl)
         return -1;
 
+    // ret == -1 si y a au moins une erreur de close
     int ret = 0;
     for (int i = 0; i < MAX_OPENED; ++i)
     {
